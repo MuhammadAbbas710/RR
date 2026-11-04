@@ -36,7 +36,7 @@ MAX_FILE_BYTES = 5 * 1024 * 1024      # 5 MB upload limit
 MAX_RESUME_CHARS = 25_000             # keeps the prompt small and fast
 MAX_JD_CHARS = 8_000
 MIN_RESUME_CHARS = 80                 # below this we assume "empty/unreadable"
-MAX_ATTEMPTS = 4                      # 1 try + 3 retries
+MAX_ATTEMPTS = 7                      # includes switching between fallback models
 BACKOFF_BASE_SECONDS = 2              # waits ~2s, ~4s, ~8s (+ jitter)
 
 # key -> (label, weight). Overall score is a weighted average computed in code
@@ -399,6 +399,9 @@ def analyze_resume(
                 if kind == "retry":
                     if getattr(exc, "code", None) == 429:
                         last_problem = "rate limit / quota reached (429)"
+                        if model_idx + 1 < len(candidates):
+                            model_idx += 1  # each model has its own quota: try the next one
+                            continue
                     else:
                         last_problem = "Gemini is overloaded or unavailable (5xx)"
                     raise _RetryableError(last_problem) from exc
