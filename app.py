@@ -29,7 +29,9 @@ from pypdf import PdfReader
 # --------------------------------------------------------------------------
 load_dotenv()  # reads a local .env file if present (ignored on Streamlit Cloud)
 
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
+# Tried in order if the chosen model returns 404 (retired / not available to this key)
+FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
 MAX_FILE_BYTES = 5 * 1024 * 1024      # 5 MB upload limit
 MAX_RESUME_CHARS = 25_000             # keeps the prompt small and fast
 MAX_JD_CHARS = 8_000
@@ -368,12 +370,15 @@ def analyze_resume(
         response_mime_type="application/json",
     )
 
+    candidates = list(dict.fromkeys([model] + FALLBACK_MODELS))
+    model_idx = 0
+
     last_problem = "unknown error"
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             try:
                 response = client.models.generate_content(
-                    model=model, contents=prompt, config=config
+                    model=candidates[model_idx], contents=prompt, config=config
                 )
             except genai_errors.APIError as exc:
                 kind = classify_api_error(exc)
@@ -383,6 +388,10 @@ def analyze_resume(
                         "active, and has no extra spaces or quotes."
                     ) from exc
                 if kind == "model":
+                    if model_idx + 1 < len(candidates):
+                        model_idx += 1  # try the next model right away
+                        last_problem = f"model '{candidates[model_idx - 1]}' not found"
+                        continue
                     raise AnalysisError(
                         f"The model '{model}' was not found. Set GEMINI_MODEL to a "
                         "currently available Gemini Flash model name."
